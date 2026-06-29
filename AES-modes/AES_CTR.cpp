@@ -7,17 +7,22 @@
 #include <cstdint>
 using namespace std;
 
-int DEFAULT_BLOCK_SIZE = 16;
+const int DEFAULT_BLOCK_SIZE = 16;
 
 class AES_CTR{
     private:
         string cipher_text, plain_text, key;
         vector<uint8_t> hexStrToByteArr(const string& hexStr);
-        uint8_t* addOne(uint8_t* arr);
+        string byteArrToHexStr(const vector<uint8_t>& byteArr);
+        void addOne(uint8_t* arr);
 
         string decryptCTR(string cipher_text, string key);
         // hex ct/key -> byte ct/key -> split IV
         // F(k,IV+i) -> xor with c[i]
+        
+        string encryptCTR(string plain_text, string key);
+        // hex key -> byte key -> select IV 
+        // -> F(k,IV+i) -> xor with m[i] -> hex
 
     public:
         AES_CTR(bool is_encoded, string text, string key);
@@ -39,6 +44,15 @@ int main(){
     cout << "the second plain text is: " 
     << c2.get_plain_text() << endl
     << endl;
+
+    string pt1 = "CTR mode lets you build a stream cipher from a block cipher.";
+    AES_CTR p1(0, pt1, key);
+
+    string ct3 = p1.get_cipher_text();
+    AES_CTR c3(1, ct3, key);
+    cout << "the third plain text is: "
+    << c3.get_plain_text() << endl
+    << endl;
 }
 
 AES_CTR::AES_CTR(bool is_encoded, string text, string key)
@@ -51,7 +65,7 @@ AES_CTR::AES_CTR(bool is_encoded, string text, string key)
 	else
 	{
 		plain_text = text;
-		// cipher_text = encryptCTR(plain_text, key);
+	    cipher_text = encryptCTR(plain_text, key);
 	}
 }
 
@@ -60,9 +74,9 @@ string AES_CTR::decryptCTR(string cipher_text, string key)
     vector<uint8_t> ct_in_bytes = hexStrToByteArr(cipher_text);
     vector<uint8_t> key_in_bytes = hexStrToByteArr(key);
 
-    uint8_t IV[DEFAULT_BLOCK_SIZE];
+    uint8_t iv[DEFAULT_BLOCK_SIZE];
     for(int i=0; i<16; i++)
-        IV[i] = ct_in_bytes[i];
+        iv[i] = ct_in_bytes[i];
     
     // //debug
     // cout << "The cipher text is: ";
@@ -84,9 +98,12 @@ string AES_CTR::decryptCTR(string cipher_text, string key)
         
         int j = 0;
         while(j < DEFAULT_BLOCK_SIZE && i+j < ct_in_bytes.size())
-            block[j++] = ct_in_bytes[i+j];
+        {
+            block[j] = ct_in_bytes[i+j];
+            j++;
+        }
         
-        aesEncryption.ProcessBlock(IV, prf_out); 
+        aesEncryption.ProcessBlock(iv, prf_out); 
 
         int filled = j;
         for(int j=0; j < filled; j++)
@@ -94,7 +111,7 @@ string AES_CTR::decryptCTR(string cipher_text, string key)
 				int xor_ans = static_cast<int>(block[j] ^ prf_out[j]);
 				pt_in_bytes.push_back(xor_ans);
             }
-        addOne(IV);
+        addOne(iv);
     }
     
     // // debug
@@ -107,6 +124,56 @@ string AES_CTR::decryptCTR(string cipher_text, string key)
     for(uint8_t byte:pt_in_bytes)
         plain_text += static_cast<char>(byte);
     return plain_text;
+}
+
+string AES_CTR::encryptCTR(string plain_text, string key)
+{
+    // converting plain text, key to bytes
+    vector<uint8_t> pt_in_bytes;
+    for(char ch: plain_text)
+        pt_in_bytes.push_back(static_cast<uint8_t>(ch));
+    
+    vector<uint8_t> key_in_bytes;
+    key_in_bytes = hexStrToByteArr(key);
+
+    vector<uint8_t> ct_in_bytes;
+
+    // Generating random IV
+	CryptoPP::AutoSeededRandomPool prng;
+
+	CryptoPP::SecByteBlock iv(DEFAULT_BLOCK_SIZE);
+	prng.GenerateBlock(iv, iv.size());
+
+    for(size_t i=0; i<iv.size(); i++)
+        ct_in_bytes.push_back(iv[i]);
+
+    // The encryption function
+    CryptoPP::AES::Encryption aesEncryption(key_in_bytes.data(), key_in_bytes.size());
+
+    // encrypting key with IV+i
+    for(size_t i=0; i<pt_in_bytes.size(); i+=DEFAULT_BLOCK_SIZE){
+        
+        uint8_t pt_block[DEFAULT_BLOCK_SIZE];
+        uint8_t encrypted[DEFAULT_BLOCK_SIZE];
+
+        int j=0;
+        while(j<DEFAULT_BLOCK_SIZE && i+j<pt_in_bytes.size()){
+            pt_block[j] = pt_in_bytes[i+j];
+            j++;
+        }
+
+        aesEncryption.ProcessBlock(iv, encrypted);
+        
+        j=0;
+        while(j<DEFAULT_BLOCK_SIZE && i+j<pt_in_bytes.size()){
+        	uint8_t xor_ans = (pt_block[j] ^ encrypted[j]);
+			ct_in_bytes.push_back(xor_ans);
+            j++;
+		}
+        addOne(iv);
+    }
+    string cipher_text = byteArrToHexStr(ct_in_bytes);
+    return cipher_text;
 }
 
 vector<uint8_t> AES_CTR::hexStrToByteArr(const string& hexStr)
@@ -123,13 +190,30 @@ vector<uint8_t> AES_CTR::hexStrToByteArr(const string& hexStr)
 	return byteArr;
 }
 
-uint8_t* AES_CTR::addOne(uint8_t* arr)
+void AES_CTR::addOne(uint8_t* arr)
 {
     int i = DEFAULT_BLOCK_SIZE - 1;
-    while(arr[i] == 255)
+    while(i >= 0 && arr[i] == 255)
         arr[i--]=0;
     arr[i] += 1;
-    return arr;
+}
+
+string AES_CTR::byteArrToHexStr(const vector<uint8_t>& byteArr)
+{
+	// // debug
+	// for(uint8_t byte: byteArr)
+	// 	cout << static_cast<int>(byte) << ' ';
+	// cout << endl;
+	// // debug
+	
+	string hexStr = "";
+	const char hexDigits[] = {"0123456789abcdef"};
+	for (uint8_t byte: byteArr)
+	{
+		hexStr += hexDigits[byte / 16];
+		hexStr += hexDigits[byte % 16];
+	}
+	return hexStr;
 }
 
 string AES_CTR::get_plain_text(){ return plain_text; }

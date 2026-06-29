@@ -64,10 +64,7 @@ int main(){
 }
 
 string CBC_MODE::encryptCBC(string pt, string key)
-{	
-	// plain text -> add padding -> select IV
-	// -> xor -> encrypt -> bytes to hex
-
+{
 	// // debug
 	// cout << "the plaintext size before padding: " << (pt.size()) << endl;
 	// // debug
